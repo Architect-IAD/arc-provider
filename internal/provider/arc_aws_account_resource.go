@@ -83,6 +83,17 @@ func (r *AccountResource) Configure(ctx context.Context, req resource.ConfigureR
 	if req.ProviderData == nil {
 		return
 	}
+
+	if c, ok := req.ProviderData.(*organizations.Client); ok && c != nil {
+		r.orgs = c
+		tflog.Debug(ctx, "configured AccountResource with *organizations.Client (direct)")
+		return
+	}
+
+	resp.Diagnostics.AddError(
+		"Unexpected Provider Configuration",
+		fmt.Sprintf("Expected *organizations.Client, an orgsGetter, or a wrapper with Orgs/Organizations *organizations.Client; got %T", req.ProviderData),
+	)
 }
 
 func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
