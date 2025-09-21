@@ -33,9 +33,8 @@ type AccountResource struct {
 
 // AccountResourceModel describes the resource data model.
 type AccountResourceModel struct {
-	ID        types.String `tfsdk:"id"`
-	AccountID types.String `tfsdk:"account_id"`
-
+	ID           types.String `tfsdk:"id"`
+	AccountID    types.String `tfsdk:"account_id"`
 	ClosedUnitID types.String `tfsdk:"closed_unit_id"`
 	UnitID       types.String `tfsdk:"unit_id"`
 	Email        types.String `tfsdk:"email"`
@@ -50,8 +49,11 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Example resource",
 		Attributes: map[string]schema.Attribute{
-			"account_id" : schema.StringAttribute{
-				Computed: true, 
+			"id": schema.StringAttribute{
+				Computed: true,
+			},
+			"account_id": schema.StringAttribute{
+				Computed: true,
 			},
 			"closed_unit_id": schema.StringAttribute{
 				MarkdownDescription: "closed unit id",
@@ -74,7 +76,6 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 				Optional:            false,
 			},
 		},
-		
 	}
 }
 
@@ -106,7 +107,7 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	if account != nil {
-		if account.Status == orgstypes.AccountStatus(orgstypes.AccountStateClosed) {
+		if account.Status == "SUSPENDED" {
 			resp.Diagnostics.AddError("An account was found, however it is pending closure.", "Please reopen the account or wait for aws to delete it.")
 			return
 		}
@@ -156,11 +157,21 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 		result := waitForAccountCreation(ctx, r.orgs, *newAccount.CreateAccountStatus.Id)
 
 		if !result {
-			resp.Diagnostics.AddError("Error while waiting for account creation. Timeout issue. You can retry again.", err.Error())
+			resp.Diagnostics.AddError("Error while waiting for account creation.", "Timeout issue. You can retry again.")
 			return
 		}
 
 		plan.AccountID = types.StringValue(*newAccount.CreateAccountStatus.AccountId)
+
+		_, moveAccountError := r.orgs.MoveAccount(ctx, &organizations.MoveAccountInput{
+			AccountId:           aws.String(*newAccount.CreateAccountStatus.AccountId),
+			DestinationParentId: aws.String(unitID),
+		})
+
+		if moveAccountError != nil {
+			resp.Diagnostics.AddError("Error moving the account", moveAccountError.Error())
+			return
+		}
 	}
 
 	plan.ID = types.StringValue(fmt.Sprintf("arcorg:%s", plan.AccountID.ValueString()))
@@ -192,6 +203,7 @@ func (r *AccountResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 
 	data.AccountID = types.StringPointerValue(account.Id)
+	data.ID = types.StringValue(fmt.Sprintf("arcorg:%s", account.Id))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -204,7 +216,7 @@ func (r *AccountResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	if plan.Email != state.Email || plan.Name != state.Email || state.UnitID != plan.UnitID || state.ClosedUnitID != plan.ClosedUnitID {
+	if plan.Email != state.Email || plan.Name != state.Name || state.UnitID != plan.UnitID || state.ClosedUnitID != plan.ClosedUnitID {
 		resp.Diagnostics.AddError("Cannot Modify Account after creation", "Destroy this resource and re-create it")
 		return
 	}
