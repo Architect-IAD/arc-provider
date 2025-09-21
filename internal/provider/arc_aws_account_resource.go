@@ -50,6 +50,9 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Example resource",
 		Attributes: map[string]schema.Attribute{
+			"account_id" : schema.StringAttribute{
+				Computed: true, 
+			},
 			"closed_unit_id": schema.StringAttribute{
 				MarkdownDescription: "closed unit id",
 				Required:            true,
@@ -71,6 +74,7 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 				Optional:            false,
 			},
 		},
+		
 	}
 }
 
