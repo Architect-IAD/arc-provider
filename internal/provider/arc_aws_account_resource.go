@@ -81,6 +81,10 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 
 func (r *AccountResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
+		resp.Diagnostics.AddError(
+			"Provider Not Configured",
+			"This resource requires an initialized AWS Organizations client. Configure the provider before using arc_aws_account.",
+		)
 		return
 	}
 
@@ -92,7 +96,7 @@ func (r *AccountResource) Configure(ctx context.Context, req resource.ConfigureR
 
 	resp.Diagnostics.AddError(
 		"Unexpected Provider Configuration",
-		fmt.Sprintf("Expected *organizations.Client, an orgsGetter, or a wrapper with Orgs/Organizations *organizations.Client; got %T", req.ProviderData),
+		fmt.Sprintf("Expected *organizations.Client; got %T", req.ProviderData),
 	)
 }
 
@@ -118,8 +122,8 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	if account != nil {
-		if account.Status == "SUSPENDED" {
-			resp.Diagnostics.AddError("An account was found, however it is pending closure.", "Please reopen the account or wait for aws to delete it.")
+		if account.Status == orgstypes.AccountStatusSuspended {
+			resp.Diagnostics.AddError("An account was found, however it is currently suspended", "Please reopen the account or wait for aws to delete it.")
 			return
 		}
 
@@ -148,12 +152,11 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 				resp.Diagnostics.AddError("Error moving the account", moveAccountError.Error())
 				return
 			}
-
-			plan.AccountID = types.StringValue(*account.Id)
 		} else {
 			resp.Diagnostics.AddWarning("An account was already found in the same organizational unit.", "If this account was not part of a timeout issue you may have duplicate account emails.")
-			return
 		}
+
+		plan.AccountID = types.StringValue(*account.Id)
 	} else {
 		newAccount, err := r.orgs.CreateAccount(ctx, &organizations.CreateAccountInput{
 			AccountName: aws.String(name),
@@ -174,9 +177,22 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 
 		plan.AccountID = types.StringValue(*newAccount.CreateAccountStatus.AccountId)
 
+		lpOut, lpErr := r.orgs.ListParents(ctx, &organizations.ListParentsInput{
+			ChildId: aws.String(*newAccount.CreateAccountStatus.AccountId),
+		})
+
+		if lpErr != nil {
+			resp.Diagnostics.AddError("Issue listing parents for new account", lpErr.Error())
+			return
+		}
+		if len(lpOut.Parents) != 1 {
+			resp.Diagnostics.AddError("Unexpected number of parents for new account", "Expected exactly 1 parent")
+			return
+		}
 		_, moveAccountError := r.orgs.MoveAccount(ctx, &organizations.MoveAccountInput{
 			AccountId:           aws.String(*newAccount.CreateAccountStatus.AccountId),
 			DestinationParentId: aws.String(unitID),
+			SourceParentId:      aws.String(*lpOut.Parents[0].Id),
 		})
 
 		if moveAccountError != nil {
@@ -214,7 +230,7 @@ func (r *AccountResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 
 	data.AccountID = types.StringPointerValue(account.Id)
-	data.ID = types.StringValue(fmt.Sprintf("arcorg:%s", account.Id))
+	data.ID = types.StringValue(fmt.Sprintf("arcorg:%s", *account.Id))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
