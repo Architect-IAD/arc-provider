@@ -34,7 +34,7 @@ type AccountResource struct {
 // AccountResourceModel describes the resource data model.
 type AccountResourceModel struct {
 	ID           types.String `tfsdk:"id"`
-	AccountID        types.String `tfsdk:"account_id"`
+	AccountID    types.String `tfsdk:"account_id"`
 
 	ClosedUnitID types.String `tfsdk:"closed_unit_id"`
 	UnitID       types.String `tfsdk:"unit_id"`
@@ -43,7 +43,7 @@ type AccountResourceModel struct {
 }
 
 func (r *AccountResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_example"
+	resp.TypeName = req.ProviderTypeName + "_aws_account"
 }
 
 func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
