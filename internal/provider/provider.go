@@ -22,10 +22,9 @@ var _ provider.ProviderWithEphemeralResources = &ArchitectProvider{}
 
 // ArchitectProvider defines the provider implementation.
 type ArchitectProvider struct {
-	orgs *organizations.Client
+	orgs    *organizations.Client
 	version string
 }
-
 
 func (p *ArchitectProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "architect"

@@ -6,9 +6,9 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/Architect-IAD/arc-provider/internal/provider"
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"log"
 )
 
 var (
