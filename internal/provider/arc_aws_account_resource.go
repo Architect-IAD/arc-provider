@@ -6,9 +6,9 @@ package provider
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	orgstypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
@@ -81,62 +81,13 @@ func (r *AccountResource) Schema(ctx context.Context, req resource.SchemaRequest
 }
 
 func (r *AccountResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		resp.Diagnostics.AddError(
-			"Provider Not Configured",
-			"This resource requires an initialized AWS Organizations client. Configure the provider before using arc_aws_account.",
-		)
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion("us-east-1"))
+	if err != nil {
+		resp.Diagnostics.AddError("AWS Configuration Error", err.Error())
 		return
 	}
 
-	// 1) Direct client
-	if c, ok := req.ProviderData.(*organizations.Client); ok && c != nil {
-		r.orgs = c
-		tflog.Debug(ctx, "configured AccountResource with *organizations.Client (direct)")
-		return
-	}
-
-	// 2) Interface-based wrapper: something that can hand us the client
-	type orgsGetter interface {
-		Orgs() *organizations.Client
-	}
-	if g, ok := req.ProviderData.(orgsGetter); ok && g.Orgs() != nil {
-		r.orgs = g.Orgs()
-		tflog.Debug(ctx, "configured AccountResource via orgsGetter")
-		return
-	}
-
-	// 3) Struct wrapper with exported field Orgs or Organizations
-	rv := reflect.ValueOf(req.ProviderData)
-	if rv.Kind() == reflect.Ptr && !rv.IsNil() {
-		rv = rv.Elem()
-	}
-	if rv.IsValid() && rv.Kind() == reflect.Struct {
-		try := func(name string) *organizations.Client {
-			f := rv.FieldByName(name)
-			if f.IsValid() && f.CanInterface() {
-				if c, ok := f.Interface().(*organizations.Client); ok && c != nil {
-					return c
-				}
-			}
-			return nil
-		}
-		if c := try("Orgs"); c != nil {
-			r.orgs = c
-			tflog.Debug(ctx, "configured AccountResource via struct field Orgs")
-			return
-		}
-		if c := try("Organizations"); c != nil {
-			r.orgs = c
-			tflog.Debug(ctx, "configured AccountResource via struct field Organizations")
-			return
-		}
-	}
-
-	resp.Diagnostics.AddError(
-		"Unexpected Provider Configuration",
-		fmt.Sprintf("Expected *organizations.Client, an orgsGetter, or a wrapper with Orgs/Organizations *organizations.Client; got %T", req.ProviderData),
-	)
+	r.orgs = organizations.NewFromConfig(awsCfg)
 }
 
 func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -224,6 +175,7 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 			resp.Diagnostics.AddError("Issue listing parents for new account", lpErr.Error())
 			return
 		}
+
 		if len(lpOut.Parents) != 1 {
 			resp.Diagnostics.AddError("Unexpected number of parents for new account", "Expected exactly 1 parent")
 			return
