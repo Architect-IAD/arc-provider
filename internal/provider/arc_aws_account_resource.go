@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	orgstypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -165,7 +165,22 @@ func (r *AccountResource) Create(ctx context.Context, req resource.CreateRequest
 			return
 		}
 
-		plan.AccountID = types.StringValue(*newAccount.CreateAccountStatus.AccountId)
+		// Re-describe to get the final AccountId
+		desc, derr := r.orgs.DescribeCreateAccountStatus(ctx, &organizations.DescribeCreateAccountStatusInput{
+				CreateAccountRequestId: newAccount.CreateAccountStatus.Id,
+		})
+		if derr != nil {
+				resp.Diagnostics.AddError("DescribeCreateAccountStatus failed after wait", derr.Error())
+				return
+		}
+		st := desc.CreateAccountStatus
+		
+		if st == nil || st.AccountId == nil || st.State != orgstypes.CreateAccountStateSucceeded {
+			resp.Diagnostics.AddError("Account creation did not succeed", string(st.FailureReason))
+			return
+		}
+
+		plan.AccountID = types.StringValue(aws.ToString(st.AccountId))
 
 		lpOut, lpErr := r.orgs.ListParents(ctx, &organizations.ListParentsInput{
 			ChildId: aws.String(*newAccount.CreateAccountStatus.AccountId),

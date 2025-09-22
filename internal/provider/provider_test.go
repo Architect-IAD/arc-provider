@@ -11,24 +11,21 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/echoprovider"
 )
 
-// testAccProtoV6ProviderFactories is used to instantiate a provider during acceptance testing.
-// The factory function is called for each Terraform CLI command to create a provider
-// server that the CLI can connect to and interact with.
+// IMPORTANT: the map key must match your provider's type name (resp.TypeName from Provider.Metadata).
+// If your provider's Metadata sets TypeName = "arc", use "arc" here.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"scaffolding": providerserver.NewProtocol6WithError(New("test")()),
+	"arc": providerserver.NewProtocol6WithError(New("test")()), // if New returns func() provider.Provider
+	// If your New signature is: func New() provider.Provider  -> use: providerserver.NewProtocol6WithError(New())
 }
 
-// testAccProtoV6ProviderFactoriesWithEcho includes the echo provider alongside the scaffolding provider.
-// It allows for testing assertions on data returned by an ephemeral resource during Open.
-// The echoprovider is used to arrange tests by echoing ephemeral data into the Terraform state.
-// This lets the data be referenced in test assertions with state checks.
+// Same for the factories that include the echo provider
 var testAccProtoV6ProviderFactoriesWithEcho = map[string]func() (tfprotov6.ProviderServer, error){
-	"scaffolding": providerserver.NewProtocol6WithError(New("test")()),
-	"echo":        echoprovider.NewProviderServer(),
+	"arc":  providerserver.NewProtocol6WithError(New("test")()),
+	"echo": echoprovider.NewProviderServer(),
 }
 
 func testAccPreCheck(t *testing.T) {
-	// You can add code here to run prior to any test case execution, for example assertions
-	// about the appropriate environment variables being set are common to see in a pre-check
-	// function.
+	// Add environment checks here if you need AWS creds/region for acc tests.
+	// e.g., skip when running without required env:
+	// if os.Getenv("AWS_REGION") == "" { t.Skip("AWS_REGION not set") }
 }
