@@ -1,31 +1,142 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package provider
 
 import (
+	"fmt"
+	"regexp"
 	"testing"
+	"time"
 
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-testing/echoprovider"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
-// IMPORTANT: the map key must match your provider's type name (resp.TypeName from Provider.Metadata).
-// If your provider's Metadata sets TypeName = "arc", use "arc" here.
-var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"arc": providerserver.NewProtocol6WithError(New("test")()), // if New returns func() provider.Provider
-	// If your New signature is: func New() provider.Provider  -> use: providerserver.NewProtocol6WithError(New())
+// ----------------------------------------------------------------------------
+// Global test configuration (edit these once for your sandbox)
+// ----------------------------------------------------------------------------
+
+var testCfg = struct {
+	UnitID       string
+	ClosedOUID   string
+	EmailDomain  string
+	NamePrefix   string
+	DefaultRegion string // optional: if your provider Configure ignores env, keep for docs
+}{
+	UnitID:        "ou-ie7g-fscdzl8a",
+	ClosedOUID:    "ou-ie7g-8jsuksl2",
+	EmailDomain:   "cloudcanvas.ca",
+	NamePrefix:    "TF-ARC-",
+	DefaultRegion: "us-east-1",
 }
 
-// Same for the factories that include the echo provider
-var testAccProtoV6ProviderFactoriesWithEcho = map[string]func() (tfprotov6.ProviderServer, error){
-	"arc":  providerserver.NewProtocol6WithError(New("test")()),
-	"echo": echoprovider.NewProviderServer(),
+// ----------------------------------------------------------------------------
+// Provider factory (ensure key matches your provider type name, e.g., "arc")
+// ----------------------------------------------------------------------------
+
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+func TestAccArcAWSAccount_Basic(t *testing.T) {
+	t.Parallel()
+
+	random := acctest.RandStringFromCharSet(6, acctest.CharSetAlphaNum)
+	name := testCfg.NamePrefix + random
+	email := fmt.Sprintf("acct-%s-%d@%s", random, time.Now().Unix(), testCfg.EmailDomain)
+
+	resource.Test(t, resource.TestCase{
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAccountConfig(name, email),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("arc_aws_account.test", "id"),
+					resource.TestCheckResourceAttrSet("arc_aws_account.test", "account_id"),
+					resource.TestCheckResourceAttr("arc_aws_account.test", "email", email),
+					resource.TestCheckResourceAttr("arc_aws_account.test", "name", name),
+					resource.TestCheckResourceAttr("arc_aws_account.test", "unit_id", testCfg.UnitID),
+					resource.TestCheckResourceAttr("arc_aws_account.test", "closed_unit_id", testCfg.ClosedOUID),
+				),
+			},
+			{
+				ResourceName:            "arc_aws_account.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateIdFunc:       testAccImportID("arc_aws_account.test"),
+				ImportStateVerifyIgnore: []string{"email", "name"},
+			},
+		},
+	})
 }
 
-func testAccPreCheck(t *testing.T) {
-	// Add environment checks here if you need AWS creds/region for acc tests.
-	// e.g., skip when running without required env:
-	// if os.Getenv("AWS_REGION") == "" { t.Skip("AWS_REGION not set") }
+func TestAccArcAWSAccount_UpdateForbidden(t *testing.T) {
+	t.Parallel()
+
+	random := acctest.RandStringFromCharSet(6, acctest.CharSetAlphaNum)
+	name := testCfg.NamePrefix + random
+	email := fmt.Sprintf("acct-%s@%s", random, testCfg.EmailDomain)
+	altName := name + "-changed"
+
+	resource.Test(t, resource.TestCase{
+		Steps: []resource.TestStep{
+			{ Config: testAccAccountConfig(name, email) },
+			{
+				Config:      testAccAccountConfig(altName, email),
+				ExpectError: regexp.MustCompile(`Cannot Modify Account after creation`),
+				PlanOnly:    true,
+			},
+		},
+	})
+}
+
+func TestAccArcAWSAccount_DeleteMovesToClosedOU(t *testing.T) {
+	t.Parallel()
+
+	random := acctest.RandStringFromCharSet(6, acctest.CharSetAlphaNum)
+	name := testCfg.NamePrefix + random
+	email := fmt.Sprintf("acct-%s@%s", random, testCfg.EmailDomain)
+
+	resource.Test(t, resource.TestCase{
+		Steps: []resource.TestStep{
+			{ Config: testAccAccountConfig(name, email) },
+			{
+				ResourceName: "arc_aws_account.test",
+				Destroy:      true,
+				Config:       "",
+			},
+		},
+	})
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func testAccAccountConfig(name, email string) string {
+	return fmt.Sprintf(`
+provider "arc" {
+  // Region defaults to %s via your resource.Configure()
+}
+
+resource "arc_aws_account" "test" {
+  name           = %q
+  email          = %q
+  unit_id        = %q
+  closed_unit_id = %q
+}
+`, testCfg.DefaultRegion, name, email, testCfg.UnitID, testCfg.ClosedOUID)
+}
+
+func testAccImportID(resName string) resource.ImportStateIdFunc {
+	return func(s *terraform.State) (string, error) {
+		ms := s.RootModule().Resources[resName]
+		if ms == nil {
+			return "", fmt.Errorf("resource %s not found in state", resName)
+		}
+		id := ms.Primary.Attributes["id"]
+		if id == "" {
+			return "", fmt.Errorf("id not set for %s", resName)
+		}
+		return id, nil
+	}
 }
