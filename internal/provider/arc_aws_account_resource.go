@@ -297,10 +297,10 @@ func waitForAccountCreation(ctx context.Context, c *organizations.Client, reqID 
 			continue
 		}
 		switch st.State {
-		case orgstypes.CreateAccountStateSucceeded:
-			return true
-		case orgstypes.CreateAccountStateFailed:
-			return false
+			case orgstypes.CreateAccountStateSucceeded:
+				return true
+			case orgstypes.CreateAccountStateFailed:
+				return false
 		}
 	}
 	return false
